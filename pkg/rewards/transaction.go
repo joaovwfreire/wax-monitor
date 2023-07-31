@@ -1,0 +1,3 @@
+package rewards
+
+func PushTransaction() {}
