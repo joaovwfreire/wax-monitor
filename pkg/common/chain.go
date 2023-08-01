@@ -1,10 +1,13 @@
 package common
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/eoscanada/eos-go"
+	"github.com/joho/godotenv"
 )
 
 var endpoints = []string{
@@ -31,6 +34,18 @@ var endpoints = []string{
 	"https://wax.hivebp.io",
 }
 
+type StakeRemove struct {
+	PoolId   uint64          `json:"pool_id"`
+	AssetIds []uint64        `json:"asset_ids"`
+	Owner    eos.AccountName `json:"owner"`
+}
+
+type MakeReward struct {
+	PoolId uint64 `json:"pool_id"`
+}
+
+const adminAccount = "breedersmint"
+
 func GetAPIEndpoint(failureCount int) string {
 	if failureCount >= len(endpoints) {
 		fmt.Println("🔁 Reached max endpoint switches. 🔁 \n Waiting for 30 seconds...")
@@ -43,8 +58,118 @@ func GetAPIEndpoint(failureCount int) string {
 	return endpoints[failureCount]
 }
 
-func RemoveStakeFromChain(poolId uint64, assetIds []uint64) (eos.Checksum256, error) {
-	// Remove the stake from the chain
-	// EOS logic should be implemented here
-	return eos.Checksum256{}, nil
+func RemoveStakeFromChain(poolId uint64, assetIds []uint64, userName eos.AccountName) (string, error) {
+
+	err := godotenv.Load()
+	if err != nil {
+		fmt.Println("Error loading .env file")
+		return "", err
+	}
+
+	privateKey := os.Getenv("PRIVATE_KEY")
+
+	apiURL := GetAPIEndpoint(0)
+	api := eos.New(apiURL)
+
+	keyBag := &eos.KeyBag{}
+	err = keyBag.ImportPrivateKey(context.Background(), privateKey)
+	if err != nil {
+		fmt.Println("Error importing private key: ", err)
+		return "", err
+	}
+	api.SetSigner(keyBag)
+	txOpts := &eos.TxOptions{}
+	if err := txOpts.FillFromChain(context.Background(), api); err != nil {
+		fmt.Println("Error filling tx opts: ", err)
+		return "", err
+	}
+
+	tx := eos.NewTransaction([]*eos.Action{stakeRemoveAction(poolId, assetIds, userName)}, txOpts)
+	_, packedTx, err := api.SignTransaction(context.Background(), tx, txOpts.ChainID, eos.CompressionNone)
+	if err != nil {
+		fmt.Println("Error signing transaction: ", err)
+		return "", err
+	}
+
+	response, err := api.PushTransaction(context.Background(), packedTx)
+	if err != nil {
+		fmt.Println("Error pushing transaction: ", err)
+		return "", err
+	}
+
+	return response.TransactionID, nil
+
+}
+
+func MakeRewards(poolId uint64, api *eos.API) (string, error) {
+	err := godotenv.Load()
+	if err != nil {
+		fmt.Println("Error loading .env file")
+		return "", err
+	}
+
+	privateKey := os.Getenv("PRIVATE_KEY")
+
+	keyBag := &eos.KeyBag{}
+	err = keyBag.ImportPrivateKey(context.Background(), privateKey)
+	if err != nil {
+		fmt.Println("Error importing private key: ", err)
+		return "", err
+	}
+	api.SetSigner(keyBag)
+	txOpts := &eos.TxOptions{}
+	if err := txOpts.FillFromChain(context.Background(), api); err != nil {
+		fmt.Println("Error filling tx opts: ", err)
+		return "", err
+	}
+
+	tx := eos.NewTransaction([]*eos.Action{makeRewardAction(poolId)}, txOpts)
+	_, packedTx, err := api.SignTransaction(context.Background(), tx, txOpts.ChainID, eos.CompressionNone)
+	if err != nil {
+		fmt.Println("Error signing transaction: ", err)
+		return "", err
+	}
+
+	response, err := api.PushTransaction(context.Background(), packedTx)
+	if err != nil {
+		fmt.Println("Error pushing transaction: ", err)
+		return "", err
+	}
+
+	return response.TransactionID, nil
+
+}
+
+func stakeRemoveAction(poolId uint64, assetIds []uint64, userName eos.AccountName) *eos.Action {
+
+	action := &eos.Action{
+		Account: eos.AN("breederstake"),
+		Name:    eos.ActN("stakeremove"),
+		Authorization: []eos.PermissionLevel{
+			{Actor: eos.AN(adminAccount), Permission: eos.PN("active")},
+		},
+		ActionData: eos.NewActionData(StakeRemove{
+			PoolId:   poolId,
+			AssetIds: assetIds,
+			Owner:    userName,
+		}),
+	}
+
+	return action
+}
+
+func makeRewardAction(poolId uint64) *eos.Action {
+
+	action := &eos.Action{
+		Account: eos.AN("breederstake"),
+		Name:    eos.ActN("makereward"),
+		Authorization: []eos.PermissionLevel{
+			{Actor: eos.AN(adminAccount), Permission: eos.PN("active")},
+		},
+		ActionData: eos.NewActionData(MakeReward{
+			PoolId: poolId,
+		}),
+	}
+
+	return action
 }

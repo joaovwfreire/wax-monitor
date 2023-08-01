@@ -47,7 +47,7 @@ func handleStakeRemove(db *sql.DB, transactionId eos.Checksum256, poolId uint64,
 			stakeRemovalTx, err := common.RemoveStakeFromChain(poolId, assetIds, user)
 			if err == nil {
 				for {
-					_, err = common.ProcessTransactionId(db, transactionIdString, stakeRemovalTx.String(), poolId, assetIds)
+					_, err = common.ProcessTransactionId(db, transactionIdString, stakeRemovalTx, poolId, assetIds)
 					if err != nil {
 						fmt.Println("Error: ", err)
 						time.Sleep(retryDelay)

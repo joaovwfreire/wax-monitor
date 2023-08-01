@@ -23,15 +23,8 @@ const (
 	longDelay            = 25 * time.Second
 )
 
-func makeRewards(poolId int64, api *eos.API) (eos.Checksum256, error) {
-	// Do an on-chain makereward call
-
-	// Return the transaction ID and/or error
-	return eos.Checksum256{}, nil
-}
-
 type Pool struct {
-	PoolId         int64  `json:"pool_id"`
+	PoolId         uint64 `json:"pool_id"`
 	CollectionName string `json:"collection_name"`
 	RewardSymbol   string `json:"reward_symbol"`
 	Reward         int64  `json:"reward"`
@@ -74,7 +67,7 @@ func queryLoop(failureCount int) {
 		for _, pool := range pools {
 
 			if pool.NextReward < time.Now().Unix() {
-				_, err := makeRewards(pool.PoolId, api)
+				_, err := common.MakeRewards(pool.PoolId, api)
 				if err != nil {
 					fmt.Println("Error making rewards:", err)
 					// not to worry, we will try again in the next iteration
