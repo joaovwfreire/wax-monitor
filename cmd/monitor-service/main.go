@@ -19,7 +19,7 @@ const (
 	StakeCreateActionName = "stakecreate"
 	StakeRemoveActionName = "stakeremove"
 	QueryInterval         = 5 * time.Second
-	maxRetries            = 3
+	maxRetries            = 25
 	retryDelay            = 2 * time.Second
 )
 
@@ -50,7 +50,7 @@ func handleStakeRemove(db *sql.DB, transactionId eos.Checksum256, poolId uint64,
 
 }
 
-func recursiveQuery(startingPoint int64, db *sql.DB, failureCount int) {
+func queryLoop(startingPoint int64, db *sql.DB, failureCount int) {
 	for {
 		apiURL := common.GetAPIEndpoint(failureCount)
 		api := eos.New(apiURL)
@@ -64,13 +64,13 @@ func recursiveQuery(startingPoint int64, db *sql.DB, failureCount int) {
 		if err != nil {
 			fmt.Println("Error: ", err)
 			failureCount++
-			time.Sleep(400 * time.Millisecond) // Adjust retry delay as needed
+			time.Sleep(400 * time.Millisecond)
 			continue
 		}
 
 		lastProcessedAction := startingPoint
 		for i, action := range info.Actions {
-			// Define your specific action data structure and handle the logic here
+
 			var actionData struct {
 				PoolId   uint64          `json:"pool_id"`
 				Username eos.AccountName `json:"username"`
@@ -102,7 +102,7 @@ func recursiveQuery(startingPoint int64, db *sql.DB, failureCount int) {
 
 func pollTransactions(db *sql.DB, startingPoint int64) {
 	for {
-		recursiveQuery(startingPoint, db, 0)
+		queryLoop(startingPoint, db, 0)
 		time.Sleep(QueryInterval)
 	}
 }
