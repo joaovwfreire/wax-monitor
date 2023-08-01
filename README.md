@@ -33,21 +33,21 @@ As the service is fairly simple, I've opted not to monitor CPU and memory usage.
 I am running the service locally at a VPS, without any sort of containerization. Graceful restarts are implemented, but the service will not be able to recover from a server crash.
 
 ## Tasklist
-- [] Fix main function
-- [] Add db logic
-    - [] Add db connection
-    - [] Add db crud operations
-    - [] Add db schema
-    - [] Setup planetscale db
-    - [] Setup automatic planetscale deployment for new instances
-- [] Add on-chain actions logic - even though what matters the most is the action.traces.data
-- [] Add contract monitor logic
-    - [] Add contract monitor logic
-    - [] Add contract monitor logic tests
-    - [] Add contract monitor logic documentation
-- [] Add email notification service
-- [] Add telegram notification service
-- [] Add easy to use config file
-- [] Make it a CLI tool
-- [] Create a flow to easily deploy new contract monitor instances
-- [] Create an ABI scraper that will automatically find the data types of the contract's actions and tables, and create a model for it
+- [x] Fix main function
+- [ ] Add db logic
+    - [x] Add db connection
+    - [x] Add db crud operations
+    - [ ] Add db schema
+    - [ ] Setup planetscale db
+    - [ ] Setup automatic planetscale deployment for new instances
+- [ ] Add on-chain actions logic - even though what matters the most is the action.traces.data
+- [ ] Add contract monitor logic
+    - [x] Add contract monitor logic
+    - [ ] Add contract monitor logic tests
+    - [ ] Add contract monitor logic documentation
+- [ ] Add email notification service
+- [ ] Add telegram notification service
+- [ ] Add easy to use config file
+- [ ] Make it a CLI tool
+- [ ] Create a flow to easily deploy new contract monitor instances
+- [ ] Create an ABI scraper that will automatically find the data types of the contract's actions and tables, and create a model for it

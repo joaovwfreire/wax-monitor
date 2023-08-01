@@ -16,11 +16,13 @@ import (
 )
 
 const (
-	StakeCreateActionName = "stakecreate"
-	StakeRemoveActionName = "stakeremove"
-	QueryInterval         = 5 * time.Second
-	maxRetries            = 25
-	retryDelay            = 2 * time.Second
+	contractName         = "breederstake"
+	atomicAssetsContract = "atomicassets"
+	QueryInterval        = 5 * time.Second
+	maxRetries           = 25
+	retryDelay           = 2 * time.Second
+	initialTransaction   = 0
+	poolId               = 4455366986717
 )
 
 func handleStakeCreate(db *sql.DB, transactionId eos.Checksum256, poolId uint64, assetIds []uint64, user eos.AccountName, timestamp string) {
@@ -32,22 +34,34 @@ func handleStakeCreate(db *sql.DB, transactionId eos.Checksum256, poolId uint64,
 func handleStakeRemove(db *sql.DB, transactionId eos.Checksum256, poolId uint64, assetIds []uint64, user eos.AccountName) {
 	transactionIdString := transactionId.String()
 
-	alreadyProcessed := common.CheckTransactionProcessed(transactionIdString)
+	alreadyProcessed, err := common.CheckTransactionProcessed(db, transactionIdString)
+	if err != nil {
+		fmt.Println("Error: ", err)
+		time.Sleep(retryDelay)
+		handleStakeRemove(db, transactionId, poolId, assetIds, user)
+		return
+	}
 
 	if !alreadyProcessed {
-		var stakeRemovalTx eos.Checksum256
 		for retryCount := 0; retryCount < maxRetries; retryCount++ {
-			stakeRemovalTx, err := common.RemoveStakeFromChain(poolId, assetIds)
+			stakeRemovalTx, err := common.RemoveStakeFromChain(poolId, assetIds, user)
 			if err == nil {
-				common.ProcessTransactionId(transactionIdString, stakeRemovalTx.String(), poolId, assetIds)
-				break
+				for {
+					_, err = common.ProcessTransactionId(db, transactionIdString, stakeRemovalTx.String(), poolId, assetIds)
+					if err != nil {
+						fmt.Println("Error: ", err)
+						time.Sleep(retryDelay)
+						// Continue to retry processing the transaction ID
+						continue
+					}
+					break // Break inner loop if transaction ID processing is successful
+				}
+				break // Break outer loop if stake removal is successful
 			}
 			fmt.Println("Error: ", err)
 			time.Sleep(retryDelay)
 		}
-		common.ProcessTransactionId(transactionIdString, stakeRemovalTx.String(), poolId, assetIds)
 	}
-
 }
 
 func queryLoop(startingPoint int64, db *sql.DB, failureCount int) {
@@ -70,29 +84,54 @@ func queryLoop(startingPoint int64, db *sql.DB, failureCount int) {
 
 		lastProcessedAction := startingPoint
 		for i, action := range info.Actions {
+			contractName := action.Trace.Action.Account
 
-			var actionData struct {
-				PoolId   uint64          `json:"pool_id"`
-				Username eos.AccountName `json:"username"`
-				AssetIds []uint64        `json:"asset_ids"`
+			// Determine the appropriate structure based on the contract name
+			var actionData interface{}
+			if contractName == "atomicassets" {
+				actionData = &struct {
+					From     eos.AccountName `json:"from"`
+					To       eos.AccountName `json:"to"`
+					AssetIds []uint64        `json:"asset_ids"`
+					Memo     string          `json:"memo"`
+				}{}
+			} else if contractName == "breederstake" {
+				actionData = &struct {
+					PoolId   uint64          `json:"pool_id"`
+					Username eos.AccountName `json:"username"`
+					AssetIds []uint64        `json:"asset_ids"`
+				}{}
 			}
 
 			bytesData, _ := json.Marshal(action.Trace.Action.Data)
-			json.Unmarshal(bytesData, &actionData)
+			json.Unmarshal(bytesData, actionData)
 
-			// yul function selector pattern =,)
+			// Handle actions accordingly
 			switch action.Trace.Action.Name {
-			case StakeCreateActionName:
-				handleStakeCreate(db, action.Trace.TransactionID, actionData.PoolId, actionData.AssetIds, actionData.Username, action.BlockTime.String())
-			case StakeRemoveActionName:
-				handleStakeRemove(db, action.Trace.TransactionID, actionData.PoolId, actionData.AssetIds, actionData.Username)
+			case "stakecreate":
+				if contractName == "breederstake" {
+					data := actionData.(*struct {
+						PoolId   uint64
+						Username eos.AccountName
+						AssetIds []uint64
+					})
+					handleStakeCreate(db, action.Trace.TransactionID, data.PoolId, data.AssetIds, data.Username, action.BlockTime.String())
+				}
+			case "logtransfer":
+				if contractName == "atomicassets" {
+					data := actionData.(*struct {
+						From     eos.AccountName
+						To       eos.AccountName
+						AssetIds []uint64
+						Memo     string
+					})
+					handleStakeRemove(db, action.Trace.TransactionID, poolId, data.AssetIds, data.From)
+				}
 			default:
 				fmt.Println("%s contract action acknowledged", action.Trace.Action.Name)
 			}
 
 			lastProcessedAction = startingPoint + int64(i)
-			// You can add code here to store the transaction in a general manner, regardless of the action type
-
 		}
 
 		startingPoint = lastProcessedAction + 1
@@ -121,7 +160,7 @@ func Start() {
 	}
 	defer db.Close()
 
-	startingPoint := int64(0)
+	startingPoint := int64(initialTransaction)
 
 	pollTransactions(db, startingPoint)
 }
