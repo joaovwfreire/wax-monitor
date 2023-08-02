@@ -15,6 +15,19 @@ import (
 	common "github.com/joaovwfreire/wax-monitor/pkg/common"
 )
 
+type AtomicAssetsActionData struct {
+	From     eos.AccountName `json:"from"`
+	To       eos.AccountName `json:"to"`
+	AssetIds []uint64        `json:"asset_ids"`
+	Memo     string          `json:"memo"`
+}
+
+type BreederStakeActionData struct {
+	PoolId   uint64          `json:"pool_id"`
+	Username eos.AccountName `json:"username"`
+	AssetIds []uint64        `json:"asset_ids"`
+}
+
 const (
 	contractName         = "breederstake"
 	atomicAssetsContract = "atomicassets"
@@ -85,22 +98,11 @@ func queryLoop(startingPoint int64, db *sql.DB, failureCount int) {
 		lastProcessedAction := startingPoint
 		for i, action := range info.Actions {
 			contractName := action.Trace.Action.Account
-
-			// Determine the appropriate structure based on the contract name
 			var actionData interface{}
 			if contractName == "atomicassets" {
-				actionData = &struct {
-					From     eos.AccountName `json:"from"`
-					To       eos.AccountName `json:"to"`
-					AssetIds []uint64        `json:"asset_ids"`
-					Memo     string          `json:"memo"`
-				}{}
+				actionData = &AtomicAssetsActionData{}
 			} else if contractName == "breederstake" {
-				actionData = &struct {
-					PoolId   uint64          `json:"pool_id"`
-					Username eos.AccountName `json:"username"`
-					AssetIds []uint64        `json:"asset_ids"`
-				}{}
+				actionData = &BreederStakeActionData{}
 			}
 
 			bytesData, _ := json.Marshal(action.Trace.Action.Data)
@@ -110,22 +112,20 @@ func queryLoop(startingPoint int64, db *sql.DB, failureCount int) {
 			switch action.Trace.Action.Name {
 			case "stakecreate":
 				if contractName == "breederstake" {
-					data := actionData.(*struct {
-						PoolId   uint64
-						Username eos.AccountName
-						AssetIds []uint64
-					})
+					data := actionData.(*BreederStakeActionData)
 					handleStakeCreate(db, action.Trace.TransactionID, data.PoolId, data.AssetIds, data.Username, action.BlockTime.String())
 				}
 			case "logtransfer":
 				if contractName == "atomicassets" {
-					data := actionData.(*struct {
-						From     eos.AccountName
-						To       eos.AccountName
-						AssetIds []uint64
-						Memo     string
-					})
-					handleStakeRemove(db, action.Trace.TransactionID, poolId, data.AssetIds, data.From)
+					data := actionData.(*AtomicAssetsActionData)
+					fmt.Println("Atomic Assets Action Data: ", data)
+					if data.From == "atomicmarket" {
+						// Do nothing if 'from' is 'atomicmarket'
+						fmt.Println("From field is 'atomicmarket', no action taken.")
+					} else {
+						fmt.Println("Handling logtransfer.")
+						handleStakeRemove(db, action.Trace.TransactionID, poolId, data.AssetIds, data.From) // Example action
+					}
 				}
 			default:
 				fmt.Println("%s contract action acknowledged", action.Trace.Action.Name)

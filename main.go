@@ -2,6 +2,7 @@ package main
 
 import (
 	monitor_service "github.com/joaovwfreire/wax-monitor/cmd/monitor-service"
+	rewards_service "github.com/joaovwfreire/wax-monitor/cmd/rewards-service"
 )
 
 func main() {
@@ -26,4 +27,5 @@ func main() {
 	*/
 
 	monitor_service.Start()
+	rewards_service.Start()
 }
