@@ -34,7 +34,7 @@ type LastProcessedBlock struct {
 }
 
 const (
-	contractName         = "breederstake"
+	breedersContract     = "breederstake"
 	atomicAssetsContract = "atomicassets"
 	QueryInterval        = 5 * time.Second
 	maxRetries           = 25
@@ -117,6 +117,80 @@ func writeLastProcessedBlockNum(blockNum uint32) {
 	}
 }
 
+func defineDataType(contractName eos.AccountName) interface{} {
+	if contractName == "atomicassets" {
+		return &AtomicAssetsActionData{}
+	} else if contractName == "breederstake" {
+		return &BreederStakeActionData{}
+	} else {
+		fmt.Println("🚨 Non-monitored action from contract 📜", contractName)
+		return nil
+	}
+}
+
+func unmarshalActionDataWithAssetIds(action eos.ActionResp, actionData interface{}, contractName eos.AccountName) interface{} {
+	dataMap, ok := action.Trace.Action.Data.(map[string]interface{})
+	if ok {
+		assetIdsInterface, ok := dataMap["asset_ids"]
+		if ok {
+			assetIdsRaw, ok := assetIdsInterface.([]interface{})
+			if ok {
+				assetIds := make([]uint64, len(assetIdsRaw))
+				for i, v := range assetIdsRaw {
+					// Convert each item in the slice to uint64
+					switch id := v.(type) {
+					case float64:
+						assetIds[i] = uint64(id)
+					case string:
+						parsedId, err := strconv.ParseUint(id, 10, 64)
+						if err != nil {
+							fmt.Printf("🚨 Error parsing string asset ID to uint64: %v\n", err)
+						} else {
+							assetIds[i] = parsedId
+						}
+					default:
+						fmt.Printf("🚨 Unexpected type for asset ID: %v, type: %T\n", v, v)
+					}
+				}
+
+				// Set the AssetIds field in the actionData object
+				if contractName == "atomicassets" {
+					data := actionData.(*AtomicAssetsActionData)
+					data.AssetIds = assetIds
+				} else if contractName == "breederstake" {
+					data := actionData.(*BreederStakeActionData)
+					data.AssetIds = assetIds
+				}
+			}
+		}
+
+	}
+	bytesData, _ := json.Marshal(action.Trace.Action.Data)
+	json.Unmarshal(bytesData, actionData)
+
+	return actionData
+}
+
+func handleAction(action eos.ActionResp, actionData interface{}, db *sql.DB, contractName eos.AccountName) {
+	// Handle actions accordingly
+	switch action.Trace.Action.Name {
+	case "stakecreate":
+		if contractName == "breederstake" {
+			data := actionData.(*BreederStakeActionData)
+			handleStakeCreate(db, action.Trace.TransactionID, data.PoolId, data.AssetIds, data.Username, action.BlockTime.String())
+		}
+	case "logtransfer":
+		if contractName == "atomicassets" {
+			data := actionData.(*AtomicAssetsActionData)
+			if data.From != "atomicmarket" {
+				handleStakeRemove(db, action.Trace.TransactionID, poolId, data.AssetIds, data.From) // Example action
+			}
+		}
+	default:
+		// Do nothing.. Can add more cases if needed, but this should be enough for now
+	}
+}
+
 func queryLoop(db *sql.DB, failureCount int) {
 	fmt.Println("🔄 Starting a new query iteration\n...")
 	apiURL := common.GetAPIEndpoint(failureCount)
@@ -148,77 +222,14 @@ func queryLoop(db *sql.DB, failureCount int) {
 
 		}
 
-		if action.BlockNum < lastProcessedBlockNum {
-			continue
-		}
-
-		if action.BlockNum >= info.LastIrreversibleBlock-100 {
+		if action.BlockNum < lastProcessedBlockNum || action.BlockNum >= info.LastIrreversibleBlock-100 {
 			continue
 		}
 
 		contractName := action.Trace.Action.Account
-		var actionData interface{}
-		if contractName == "atomicassets" {
-			actionData = &AtomicAssetsActionData{}
-		} else if contractName == "breederstake" {
-			actionData = &BreederStakeActionData{}
-		}
-
-		dataMap, ok := action.Trace.Action.Data.(map[string]interface{})
-		if ok {
-			assetIdsInterface, ok := dataMap["asset_ids"]
-			if ok {
-				assetIdsRaw, ok := assetIdsInterface.([]interface{})
-				if ok {
-					assetIds := make([]uint64, len(assetIdsRaw))
-					for i, v := range assetIdsRaw {
-						// Convert each item in the slice to uint64
-						switch id := v.(type) {
-						case float64:
-							assetIds[i] = uint64(id)
-						case string:
-							parsedId, err := strconv.ParseUint(id, 10, 64)
-							if err != nil {
-								fmt.Printf("🚨 Error parsing string asset ID to uint64: %v\n", err)
-							} else {
-								assetIds[i] = parsedId
-							}
-						default:
-							fmt.Printf("🚨 Unexpected type for asset ID: %v, type: %T\n", v, v)
-						}
-					}
-
-					// Set the AssetIds field in the actionData object
-					if contractName == "atomicassets" {
-						data := actionData.(*AtomicAssetsActionData)
-						data.AssetIds = assetIds
-					} else if contractName == "breederstake" {
-						data := actionData.(*BreederStakeActionData)
-						data.AssetIds = assetIds
-					}
-				}
-			}
-
-		}
-		bytesData, _ := json.Marshal(action.Trace.Action.Data)
-		json.Unmarshal(bytesData, actionData)
-
-		// Handle actions accordingly
-		switch action.Trace.Action.Name {
-		case "stakecreate":
-			if contractName == "breederstake" {
-				data := actionData.(*BreederStakeActionData)
-				handleStakeCreate(db, action.Trace.TransactionID, data.PoolId, data.AssetIds, data.Username, action.BlockTime.String())
-			}
-		case "logtransfer":
-			if contractName == "atomicassets" {
-				data := actionData.(*AtomicAssetsActionData)
-				if data.From != "atomicmarket" {
-					handleStakeRemove(db, action.Trace.TransactionID, poolId, data.AssetIds, data.From) // Example action
-				}
-			}
-		default:
-		}
+		actionData := defineDataType(contractName)
+		unmarshalActionDataWithAssetIds(action, actionData, contractName)
+		handleAction(action, actionData, db, contractName)
 
 		if action.BlockNum > lastProcessedBlockNum {
 			writeLastProcessedBlockNum(action.BlockNum)
