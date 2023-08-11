@@ -37,15 +37,17 @@ I am running the service locally at a VPS, without any sort of containerization.
 - [ ] Add db logic
     - [x] Add db connection
     - [x] Add db crud operations
-    - [ ] Add db schema
-    - [ ] Setup planetscale db
+    - [x] Add db schema
+    - [x] Setup planetscale db
     - [ ] Setup automatic planetscale deployment for new instances
-- [ ] Add on-chain actions logic - even though what matters the most is the action.traces.data
+- [x] Add on-chain actions logic - even though what matters the most is the action.traces.data
 - [ ] Add contract monitor logic
     - [x] Add contract monitor logic
     - [ ] Add contract monitor logic tests
     - [ ] Add contract monitor logic documentation
-- [ ] Add email notification service
+- [x] Add email notification service
+    - [ ] Add smarter authentication through refresh tokens
+    - [ ] Integrate service with actions and monitor
 - [ ] Add telegram notification service
 - [ ] Add easy to use config file
 - [ ] Make it a CLI tool

@@ -89,9 +89,6 @@ type Datum struct {
 	PolicyID            PolicyID         `json:"policyId"`
 }
 
-type Address struct {
-}
-
 type EmailAddress struct {
 	IsAlias     bool   `json:"isAlias"`
 	IsPrimary   bool   `json:"isPrimary"`
