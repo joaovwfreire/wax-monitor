@@ -14,6 +14,7 @@ import (
 	"github.com/joho/godotenv"
 
 	common "github.com/joaovwfreire/wax-monitor/pkg/common"
+	rewards "github.com/joaovwfreire/wax-monitor/pkg/rewards"
 )
 
 type AtomicAssetsActionData struct {
@@ -65,6 +66,7 @@ func handleStakeRemove(db *sql.DB, transactionId eos.Checksum256, poolId uint64,
 		for retryCount := 0; retryCount < maxRetries; retryCount++ {
 			stakeRemovalTx, err := common.RemoveStakeFromChain(poolId, assetIds, user)
 			if err == nil {
+				rewards.NotifyEmail(os.Getenv("EMAIL_TO"), fmt.Sprintf("Stake removal transaction", transactionIdString), fmt.Sprintf("Stake removal transaction processed at txhash: %s \n PoolId: %s \n Stake Removed from: %s", transactionIdString, strconv.FormatUint(poolId, 10), user.String()))
 				for {
 					_, err = common.ProcessTransactionId(db, transactionIdString, stakeRemovalTx, poolId, assetIds)
 					if err != nil {
