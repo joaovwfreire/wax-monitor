@@ -35,6 +35,9 @@ type AccountDataResponse struct {
 	Data   []Datum `json:"data"`
 }
 
+type Address struct {
+}
+
 type Datum struct {
 	Country             string           `json:"country"`
 	LastLogin           int64            `json:"lastLogin"`
