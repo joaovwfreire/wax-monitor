@@ -14,7 +14,7 @@ import (
 	"github.com/joho/godotenv"
 
 	common "github.com/joaovwfreire/wax-monitor/pkg/common"
-	rewards "github.com/joaovwfreire/wax-monitor/pkg/rewards"
+	"github.com/joaovwfreire/wax-monitor/pkg/rewards"
 )
 
 type AtomicAssetsActionData struct {
@@ -38,11 +38,30 @@ const (
 	breedersContract     = "breederstake"
 	atomicAssetsContract = "atomicassets"
 	QueryInterval        = 5 * time.Second
-	maxRetries           = 25
+	maxRetries           = 3
 	retryDelay           = 2 * time.Second
 	initialTransaction   = 0
 	poolId               = 4455366986717
 )
+
+func appendToLog(logFile string, message string) error {
+	file, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Println("🚨 Error: ", err)
+		return err
+	}
+
+	defer file.Close()
+
+	_, err = file.WriteString(message)
+	if err != nil {
+		fmt.Println("🚨 Error: ", err)
+		return err
+	}
+
+	return nil
+
+}
 
 func handleStakeCreate(db *sql.DB, transactionId eos.Checksum256, poolId uint64, assetIds []uint64, user eos.AccountName, timestamp string) {
 	// Handle the stake creation logic, including adding asset IDs to a table
@@ -50,27 +69,43 @@ func handleStakeCreate(db *sql.DB, transactionId eos.Checksum256, poolId uint64,
 	// SQL logic should be implemented here
 }
 
-func handleStakeRemove(db *sql.DB, transactionId eos.Checksum256, poolId uint64, assetIds []uint64, user eos.AccountName) {
+func handleStakeRemove(db *sql.DB, transactionId eos.Checksum256, poolId uint64, assetIds []uint64, user eos.AccountName, memo string) {
 	transactionIdString := transactionId.String()
 
+	if memo != "" {
+		if memo[0:12] == "AtomicMarket" {
+			return
+		}
+	}
 	alreadyProcessed, err := common.CheckTransactionProcessed(db, transactionIdString)
 	if err != nil {
 		fmt.Println("🚨 Error: ", err)
 		time.Sleep(retryDelay)
-		handleStakeRemove(db, transactionId, poolId, assetIds, user)
+		fmt.Println("🔍 Found a non-processed transaction with ID: ", transactionIdString)
+		handleStakeRemove(db, transactionId, poolId, assetIds, user, memo)
 		return
 	}
 
 	if !alreadyProcessed {
 		fmt.Println("🔍 Found a non-processed transaction with ID: ", transactionIdString)
 		for retryCount := 0; retryCount < maxRetries; retryCount++ {
+			fmt.Println("🔍 Found a non-processed transaction from sender: ", user)
 			stakeRemovalTx, err := common.RemoveStakeFromChain(poolId, assetIds, user)
+			if err != nil {
+				err = appendToLog("error_log.json", fmt.Sprintf("Error processing unstake transaction: %s \n Error: %s", transactionIdString, err.Error()))
+				if err != nil {
+					fmt.Println("Failed to write to file:", err)
+				}
+			}
 			if err == nil {
 				rewards.NotifyEmail(os.Getenv("EMAIL_TO"), fmt.Sprintf("Stake removal transaction", transactionIdString), fmt.Sprintf("Stake removal transaction processed at txhash: %s \n PoolId: %s \n Stake Removed from: %s", transactionIdString, strconv.FormatUint(poolId, 10), user.String()))
 				for {
 					_, err = common.ProcessTransactionId(db, transactionIdString, stakeRemovalTx, poolId, assetIds)
 					if err != nil {
 						fmt.Println("🚨 Error: ", err)
+						if writeErr := os.WriteFile("error_log.json", []byte(fmt.Sprintf("Error processing unstake transaction: %s \n Error: %s", transactionIdString, err.Error())), 0644); writeErr != nil {
+							fmt.Println("Failed to write to file:", writeErr)
+						}
 						time.Sleep(retryDelay)
 						// Continue to retry processing the transaction ID
 						continue
@@ -185,7 +220,7 @@ func handleAction(action eos.ActionResp, actionData interface{}, db *sql.DB, con
 		if contractName == "atomicassets" {
 			data := actionData.(*AtomicAssetsActionData)
 			if data.From != "atomicmarket" {
-				handleStakeRemove(db, action.Trace.TransactionID, poolId, data.AssetIds, data.From) // Example action
+				handleStakeRemove(db, action.Trace.TransactionID, poolId, data.AssetIds, data.From, data.Memo) // Example action
 			}
 		}
 	default:
